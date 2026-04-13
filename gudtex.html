@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GudText Ultra v5.1</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: sans-serif; background: #111; color: white; margin: 0; overflow: hidden; }
+        
+        /* Панель редактора */
+        #dev-panel { padding: 20px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; }
+        textarea { flex-grow: 1; background: #1a1a1a; color: #0f0; border: 2px solid #333; padding: 12px; font-family: monospace; font-size: 14px; border-radius: 8px; outline: none; }
+        
+        /* Шпаргалка под редактором */
+        #helper {
+            font-size: 11px;
+            color: #aaa;
+            background: #222;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+            border-left: 3px solid #4caf50;
+            line-height: 1.4;
+        }
+
+        .btns { display: flex; gap: 10px; margin-top: 10px; }
+        button { padding: 15px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; flex: 1; transition: 0.2s; }
+        .run { background: #4caf50; color: white; }
+        .run:hover { background: #45a049; }
+        .share { background: #2196f3; color: white; }
+        
+        /* Игровой экран */
+        #game-screen { display: none; background: #000; height: 100vh; width: 100vw; position: fixed; top: 0; left: 0; }
+        #game-content { position: relative; width: 100%; height: 100%; }
+        .obj { position: absolute; transform: translate(-50%, -50%); transition: transform 0.2s; }
+        .game-btn { border: none; cursor: pointer; background: #6200ee; color: white; padding: 10px; border-radius: 5px; font-weight: bold; }
+        #game-output { position: absolute; width: 100%; text-align: center; font-size: 24px; z-index: 1000; pointer-events: none; padding-top: 15px; text-shadow: 2px 2px 4px rgba(0,0,0,0.5); }
+        #secret-back { position: fixed; bottom: 0; right: 0; width: 50px; height: 50px; z-index: 10000; background: transparent; }
+    </style>
+</head>
+<body>
+
+    <div id="dev-panel">
+        <textarea id="editor" placeholder="Пиши код здесь..."></textarea>
+        
+        <div id="helper">
+            <b>Шпаргалка:</b><br>
+            • переменая - имя - значение | напиши имя | действие имя + 1<br>
+            • импорт - URL/круг/квадрат - имя | кнопка - текст - событие<br>
+            • переместить - имя - Y(1-10) - X(1-10) | размер - имя - W - H<br>
+            • если_переменая имя > 10 ... иначе ... конец_если
+        </div>
+
+        <div class="btns">
+            <button class="run" onclick="startGame()">ЗАПУСТИТЬ ИГРУ</button>
+            <button class="share" onclick="copyLink()">ПОДЕЛИТЬСЯ</button>
+        </div>
+    </div>
+
+    <div id="game-screen">
+        <div id="game-output"></div>
+        <div id="game-content"></div>
+        <div id="secret-back" onclick="handleSecret()"></div>
+    </div>
+
+    <script>
+        let vars = {}, events = {}, objs = {}, secretCounter = 0;
+
+        function startGame() {
+            const code = document.getElementById('editor').value;
+            document.getElementById('dev-panel').style.display = 'none';
+            document.getElementById('game-screen').style.display = 'block';
+            vars = {}; events = {}; objs = {};
+            document.getElementById('game-content').innerHTML = '';
+            document.getElementById('game-output').innerText = '';
+            const lines = code.split('\n');
+            parseEvents(lines);
+            runBlock(lines);
+        }
+
+        function parseEvents(lines) {
+            let cur = null;
+            lines.forEach(l => {
+                let s = l.trim();
+                if (s.startsWith('когда_нажата')) { cur = s.split('-')[1].trim(); events[cur] = []; }
+                else if (s.startsWith('конец_события')) { cur = null; }
+                else if (cur) { events[cur].push(s); }
+            });
+        }
+
+        function runBlock(lines) {
+            let skip = false, inEv = false;
+            lines.forEach(line => {
+                let s = line.trim();
+                if (s.startsWith('когда_нажата')) inEv = true;
+                if (s.startsWith('конец_события')) { inEv = false; return; }
+                if (inEv) return;
+                if (s.startsWith('если_переменая')) {
+                    let p = s.split(' ');
+                    let v1 = vars[p[1]], op = p[2], v2 = isNaN(p[3]) ? vars[p[3]] : Number(p[3]);
+                    skip = !(op === '>' ? v1 > v2 : op === '<' ? v1 < v2 : v1 == v2);
+                    return;
+                }
+                if (s === 'иначе') { skip = !skip; return; }
+                if (s === 'конец_если') { skip = false; return; }
+                if (!skip) execute(s);
+            });
+        }
+
+        function execute(line) {
+            if (!line) return;
+            let p = line.split('-').map(i => i.trim());
+            
+            if (line.startsWith('переменая')) vars[p[1]] = isNaN(p[2]) ? p[2] : Number(p[2]);
+            
+            if (line.startsWith('напиши')) {
+                let content = line.substring(7).trim();
+                document.getElementById('game-output').innerText = vars.hasOwnProperty(content) ? vars[content] : content;
+            }
+
+            if (line.startsWith('импорт')) {
+                let url = p[1], name = p[2], el;
+                if (url.includes('youtube.com') || url.includes('youtu.be')) {
+                    let id = url.split('v=')[1] || url.split('/').pop();
+                    el = document.createElement('iframe');
+                    el.src = `https://www.youtube.com/embed/${id}?autoplay=1&mute=1&controls=0`;
+                    el.style.border = "none";
+                } else if (url === 'круг' || url === 'квадрат') {
+                    el = document.createElement('div');
+                    el.style.background = "red";
+                    if (url === 'круг') el.style.borderRadius = "50%";
+                } else if (url.match(/\.(mp3|wav|ogg)$/)) {
+                    el = document.createElement('audio'); el.src = url; el.autoplay = true; el.loop = true;
+                } else {
+                    el = document.createElement('img'); el.src = url;
+                }
+                el.className = 'obj'; el.id = 'obj_'+name;
+                el.style.top = "50%"; el.style.left = "50%"; // По центру сразу
+                document.getElementById('game-content').appendChild(el);
+                objs[name] = el;
+            }
+
+            if (line.startsWith('кнопка')) {
+                let btn = document.createElement('button');
+                btn.className = 'obj game-btn';
+                btn.innerText = p[1];
+                btn.style.top = "50%"; btn.style.left = "50%"; // По центру сразу
+                btn.onclick = () => { if(events[p[2]]) runBlock(events[p[2]]); };
+                document.getElementById('game-content').appendChild(btn);
+                objs[p[2]] = btn;
+            }
+
+            if (line.startsWith('переместить')) {
+                if (objs[p[1]]) {
+                    objs[p[1]].style.top = (p[2] * 9) + "%";
+                    objs[p[1]].style.left = (p[3] * 9) + "%";
+                }
+            }
+
+            if (line.startsWith('размер')) { 
+                if (objs[p[1]]) { 
+                    objs[p[1]].style.width = p[2] + "px"; 
+                    objs[p[1]].style.height = p[3] ? p[3]+"px" : "auto"; 
+                } 
+            }
+            if (line.startsWith('слой')) { if (objs[p[1]]) objs[p[1]].style.zIndex = p[2]; }
+            if (line.startsWith('поворот')) { if (objs[p[1]]) objs[p[1]].style.transform = `translate(-50%, -50%) rotate(${p[2]}deg)`; }
+            if (line.startsWith('скрыть')) { if (objs[p[1]]) objs[p[1]].style.display = 'none'; }
+            if (line.startsWith('показать')) { if (objs[p[1]]) objs[p[1]].style.display = 'block'; }
+            if (line.startsWith('цвет')) {
+                let c = line.split(' ')[1];
+                document.getElementById('game-output').style.color = c;
+            }
+            if (line.startsWith('действие')) {
+                let parts = line.substring(9).trim().split(' ');
+                let vN = parts[0], op = parts[1], val = vars.hasOwnProperty(parts[2]) ? vars[parts[2]] : Number(parts[2]);
+                if (op === '+') vars[vN] += val; if (op === '-') vars[vN] -= val;
+                if (document.getElementById('game-output').innerText != "") runBlock([`напиши ${vN}`]);
+            }
+            if (line.startsWith('удалить')) {
+                if (objs[p[1]]) { objs[p[1]].remove(); delete objs[p[1]]; }
+            }
+        }
+
+        function handleSecret() { 
+            if (++secretCounter >= 5) { 
+                document.getElementById('dev-panel').style.display = 'flex'; 
+                document.getElementById('game-screen').style.display = 'none'; 
+                secretCounter = 0; 
+            } 
+        }
+
+        function copyLink() { 
+            const code = btoa(unescape(encodeURIComponent(document.getElementById('editor').value))); 
+            navigator.clipboard.writeText(window.location.href.split('?')[0] + "?code=" + code); 
+            alert("Ссылка скопирована!"); 
+        }
+
+        window.onload = () => { 
+            const params = new URLSearchParams(window.location.search); 
+            if (params.get('code')) { 
+                document.getElementById('editor').value = decodeURIComponent(escape(atob(params.get('code')))); 
+                startGame(); 
+            } 
+        };
+    </script>
+</body>
+</html>
